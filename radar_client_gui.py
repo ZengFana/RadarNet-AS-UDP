@@ -1,7 +1,7 @@
 """
 radar_client_gui.py
 ===================
-接收端客戶端視窗：指定 Server IP 與 Port、定期發送心跳、相容轉碼並繪製於 visualizer_3d.py。
+接收端客戶端視窗：輸入 Server IP 與 Port 連線、發送心跳、相容轉碼並繪製於 visualizer_3d.py[span_3](start_span)[span_3](end_span)。
 """
 import sys
 import json
@@ -69,7 +69,7 @@ class RadarClientWorker(QThread):
 class ClientMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("RadarNet-AS 接收端 Visualizer")
+        self.setWindowTitle("RadarNet-AS 接收端 Visualizer (Client)")
         self.resize(1300, 850)
         self.worker = None
 
@@ -84,7 +84,7 @@ class ClientMainWindow(QMainWindow):
 
         box_net = QGroupBox("Server 連線設定")
         net_form = QFormLayout(box_net)
-        self.edit_ip = QLineEdit("127.0.0.1")
+        self.edit_ip = QLineEdit("127.0.0.1") # 填寫 Server 端顯示的實體 IP
         self.spin_port = QSpinBox()
         self.spin_port.setRange(1024, 65535)
         self.spin_port.setValue(9999)
@@ -116,7 +116,7 @@ class ClientMainWindow(QMainWindow):
         left_layout.addWidget(self.lbl_status)
         left_layout.addStretch(1)
 
-        # 右側：沿用原本視覺化畫布[span_8](start_span)[span_8](end_span)
+        # 右側：沿用原本視覺化畫布[span_4](start_span)[span_4](end_span)
         self.viewer = AreaScanner3DWidget()
         main_layout.addWidget(self.viewer, 1)
 
@@ -146,7 +146,6 @@ class ClientMainWindow(QMainWindow):
             self.worker.stop()
 
     def on_frame_received(self, frame_dict: dict):
-        # 防呆相容物件封裝，防止 KeyError[span_9](start_span)[span_9](end_span)
         try:
             class DummyPoint:
                 def __init__(self, d):
