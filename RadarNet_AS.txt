@@ -1,0 +1,8 @@
+RadarNet_AS/
+│
+├── serial_manager.py     # [沿用] 序列埠通訊管理層 (不需修改)[span_2](start_span)[span_2](end_span)
+├── parser_as.py          # [沿用] 加強版二進位封包解析器 (不需修改)[span_3](start_span)[span_3](end_span)
+├── visualizer_3d.py      # [沿用] 你原本寫好的 3D 視覺化畫布 (不需修改)[span_4](start_span)[span_4](end_span)
+│
+├── radar_server_gui.py   # [更新] 發送端：UDP 廣播/發送 + Browse 按鈕 GUI
+└── radar_client_gui.py   # [更新] 接收端：UDP 接收 + 沿用視覺化畫布 GUI
