@@ -1,14 +1,15 @@
 """
 radar_client_gui.py
 ===================
-接收端客戶端視窗：UDP 監聽接收、簡潔控制台、相容相應物件結構並轉接至 visualizer_3d.py 畫布。
+接收端客戶端視窗：指定 Server IP 與 Port、定期發送心跳、相容轉碼並繪製於 visualizer_3d.py。
 """
 import sys
 import json
 import socket
+import time
 from PySide6.QtCore import QThread, Signal, Slot
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QGroupBox, QFormLayout, QLineEdit, 
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QGroupBox, QFormLayout, QLineEdit,
                              QSpinBox, QPushButton, QLabel, QComboBox, QCheckBox)
 from visualizer_3d import AreaScanner3DWidget
 
@@ -16,9 +17,10 @@ class RadarClientWorker(QThread):
     frame_signal = Signal(dict)
     log_signal = Signal(str)
 
-    def __init__(self, port=9999, parent=None):
+    def __init__(self, server_ip="127.0.0.1", server_port=9999, parent=None):
         super().__init__(parent)
-        self.port = port
+        self.server_ip = server_ip
+        self.server_port = server_port
         self._running = False
 
     def stop(self):
@@ -27,13 +29,23 @@ class RadarClientWorker(QThread):
     def run(self):
         self._running = True
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        
+        sock.settimeout(0.5)
+        server_addr = (self.server_ip, self.server_port)
+
         try:
-            sock.bind(("0.0.0.0", self.port))
-            sock.settimeout(0.5)
-            self.log_signal.emit(f"[Client] UDP Socket 已綁定 Port {self.port}，等待資料中...")
+            # 發送初次連線請求
+            sock.sendto(b"CONNECT", server_addr)
+            self.log_signal.emit(f"[Client] 已向 Server ({self.server_ip}:{self.server_port}) 發送連線請求...")
+
+            last_ping_ts = 0
 
             while self._running:
+                now = time.time()
+                # 每 2 秒發送一次 Ping 心跳維持連線
+                if now - last_ping_ts > 2.0:
+                    sock.sendto(b"PING", server_addr)
+                    last_ping_ts = now
+
                 try:
                     data, _ = sock.recvfrom(65535)
                     if not data:
@@ -52,12 +64,12 @@ class RadarClientWorker(QThread):
         finally:
             self._running = False
             sock.close()
-            self.log_signal.emit("[Client] Socket 已安全關閉。")
+            self.log_signal.emit("[Client] 網路連線已關閉。")
 
 class ClientMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("RadarNet-AS 接收端 Visualizer (UDP Mode)")
+        self.setWindowTitle("RadarNet-AS 接收端 Visualizer")
         self.resize(1300, 850)
         self.worker = None
 
@@ -70,15 +82,17 @@ class ClientMainWindow(QMainWindow):
         left_panel.setFixedWidth(280)
         main_layout.addWidget(left_panel)
 
-        box_net = QGroupBox("UDP 接收端設定")
+        box_net = QGroupBox("Server 連線設定")
         net_form = QFormLayout(box_net)
+        self.edit_ip = QLineEdit("127.0.0.1")
         self.spin_port = QSpinBox()
         self.spin_port.setRange(1024, 65535)
         self.spin_port.setValue(9999)
         self.combo_view = QComboBox()
         self.combo_view.addItems(["3D View", "X-Y View"])
 
-        net_form.addRow("監聽 UDP Port", self.spin_port)
+        net_form.addRow("Server IP 地址", self.edit_ip)
+        net_form.addRow("Server Port 埠", self.spin_port)
         net_form.addRow("視圖模式", self.combo_view)
         left_layout.addWidget(box_net)
 
@@ -92,8 +106,8 @@ class ClientMainWindow(QMainWindow):
         disp_form.addRow(self.check_zones)
         left_layout.addWidget(box_display)
 
-        self.btn_start = QPushButton("開始接收 (Start)")
-        self.btn_stop = QPushButton("停止接收 (Stop)")
+        self.btn_start = QPushButton("連接伺服器 (Connect)")
+        self.btn_stop = QPushButton("中斷連線 (Disconnect)")
         self.btn_stop.setEnabled(False)
         left_layout.addWidget(self.btn_start)
         left_layout.addWidget(self.btn_stop)
@@ -102,6 +116,7 @@ class ClientMainWindow(QMainWindow):
         left_layout.addWidget(self.lbl_status)
         left_layout.addStretch(1)
 
+        # 右側：沿用原本視覺化畫布[span_8](start_span)[span_8](end_span)
         self.viewer = AreaScanner3DWidget()
         main_layout.addWidget(self.viewer, 1)
 
@@ -116,7 +131,7 @@ class ClientMainWindow(QMainWindow):
 
     def start_client(self):
         self.viewer.clear()
-        self.worker = RadarClientWorker(port=self.spin_port.value())
+        self.worker = RadarClientWorker(server_ip=self.edit_ip.text().strip(), server_port=self.spin_port.value())
         self.worker.frame_signal.connect(self.on_frame_received)
         self.worker.log_signal.connect(print)
         self.worker.finished.connect(self.on_stopped)
@@ -131,6 +146,7 @@ class ClientMainWindow(QMainWindow):
             self.worker.stop()
 
     def on_frame_received(self, frame_dict: dict):
+        # 防呆相容物件封裝，防止 KeyError[span_9](start_span)[span_9](end_span)
         try:
             class DummyPoint:
                 def __init__(self, d):
