@@ -1,7 +1,7 @@
 """
 radar_server_gui.py
 ===================
-發送端主控台：自動抓取本機區域網路 IP、管理雷達 COM Port、提供 Browse 選擇 CFG[span_0](start_span)[span_0](end_span)[span_1](start_span)[span_1](end_span)，
+發送端主控台：自動抓取本機區域網路 IP、管理雷達 COM Port、提供 Browse 選擇 CFG，
 並以 UDP 廣播資料給所有連線的 Client。
 """
 import sys
@@ -22,7 +22,6 @@ def get_local_ip() -> str:
     """
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # 嘗試連接外部位址以獲取本機主要出口的 IP (不會真的發送數據)
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
@@ -49,7 +48,6 @@ class MultiClientUDPServerWorker(QThread):
         parser = AreaScannerParser()
         self._running = True
 
-        # 綁定 "0.0.0.0" 代表監聽本機所有的網路介面 (包含實體網卡與 Wi-Fi)，允許外部電腦連入
         udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         udp_socket.bind(("0.0.0.0", self.port))
@@ -69,25 +67,22 @@ class MultiClientUDPServerWorker(QThread):
             self.status_signal.emit("雷達傳輸中 (等待 Client 連線)")
 
             while self._running:
-                # 1. 檢查是否有 Client 發送 握手/心跳 訊號 (Ping/Connect)
                 try:
                     data, addr = udp_socket.recvfrom(1024)
                     msg = data.decode('utf-8').strip()
                     if msg.startswith("CONNECT") or msg.startswith("PING"):
                         if addr not in self.clients:
                             self.log_signal.emit(f"[Server] 新增 Client 連線: {addr[0]}:{addr[1]}")
-                        self.clients[addr] = time.time()  # 更新 Client 心跳時間
+                        self.clients[addr] = time.time()
                 except socket.timeout:
                     pass
 
-                # 2. 清理超過 5 秒沒有心跳的超時 Client
                 now = time.time()
                 dead_clients = [addr for addr, last_ts in self.clients.items() if now - last_ts > 5.0]
                 for addr in dead_clients:
                     del self.clients[addr]
                     self.log_signal.emit(f"[Server] Client 逾時中斷: {addr[0]}:{addr[1]}")
 
-                # 3. 讀取雷達數據並發送給所有已註冊的 Client
                 raw = manager.read_data_once(max_bytes=8192)
                 if not raw:
                     self.msleep(3)
@@ -104,7 +99,6 @@ class MultiClientUDPServerWorker(QThread):
                         frame_dict = frame.to_dict()
                         json_bytes = json.dumps(frame_dict).encode('utf-8')
 
-                        # 廣播發送給所有在線上的 Client
                         for client_addr in list(self.clients.keys()):
                             udp_socket.sendto(json_bytes, client_addr)
 
@@ -156,7 +150,6 @@ class ServerMainWindow(QMainWindow):
         self.spin_data_b.setRange(9600, 3000000)
         self.spin_data_b.setValue(921600)
 
-        # CFG 選擇 Browse... 按鈕[span_2](start_span)[span_2](end_span)
         cfg_widget = QWidget()
         cfg_layout = QHBoxLayout(cfg_widget)
         cfg_layout.setContentsMargins(0, 0, 0, 0)
@@ -166,7 +159,6 @@ class ServerMainWindow(QMainWindow):
         cfg_layout.addWidget(self.edit_cfg)
         cfg_layout.addWidget(self.btn_browse)
 
-        # 自動顯示本機區域網路 IP
         local_ip = get_local_ip()
         self.lbl_ip_info = QLabel(f"<b>{local_ip}</b> <font color='gray'>(讓其他 Client 輸入此 IP)</font>")
 
@@ -179,7 +171,7 @@ class ServerMainWindow(QMainWindow):
         form.addRow("CLI 波特率 (Baud)", self.spin_cli_b)
         form.addRow("DATA 波特率 (Baud)", self.spin_data_b)
         form.addRow("CFG 設定檔路徑", cfg_widget)
-        form.addRow("本機 Server IP", self.lbl_ip_info) # 自動取得實體 IP 顯示於此
+        form.addRow("本機 Server IP", self.lbl_ip_info)
         form.addRow("Server 監聽 Port", self.edit_port)
         layout.addWidget(box_serial)
 
@@ -267,4 +259,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     win = ServerMainWindow()
     win.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec_())

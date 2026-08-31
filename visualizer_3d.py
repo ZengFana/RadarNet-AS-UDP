@@ -1,10 +1,7 @@
 """
 visualizer_3d.py
 ================
-
-升級版 2D/3D 混合視覺化模組。
-已針對以 dict (JSON) 及 ParsedFrame 物件傳入的資料結構進行防呆相容，
-並修復 pyqtgraph.openglGLMeshItem 初始法向量運算的 NoneType 崩潰問題。
+升級版 2D/3D 混合視覺化模組（PyQt5 相容版）。
 """
 
 from __future__ import annotations
@@ -30,27 +27,20 @@ except Exception:
     HAS_PYQTGRAPH = False
 
 
-# ==========================================================
-# 1. 顯示樣式集中管理
-# ==========================================================
 @dataclass
 class ViewerStyle:
     background: str = "#000000"
-    dynamic_color: tuple = (0.33, 0.78, 0.92, 1.0) # 淺藍色
-    static_color: tuple = (1.0, 0.0, 1.0, 1.0)     # 紫紅色
-    target_color: tuple = (1.0, 1.0, 1.0, 1.0)     # 白色 (目標與軌跡)
+    dynamic_color: tuple = (0.33, 0.78, 0.92, 1.0)
+    static_color: tuple = (1.0, 0.0, 1.0, 1.0)
+    target_color: tuple = (1.0, 1.0, 1.0, 1.0)
 
 
-# ==========================================================
-# 2. 主要視覺化 Widget (支援 2D / 3D 切換)
-# ==========================================================
 class AreaScanner3DWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None, style: Optional[ViewerStyle] = None) -> None:
         super().__init__(parent)
         self.style = style if style is not None else ViewerStyle()
 
-        # --- 狀態變數 ---
         self._view_mode = "X-Y View"
         self._enable_zones = True
         self._critical_start_m = 0.0
@@ -65,20 +55,19 @@ class AreaScanner3DWidget(QWidget):
         self._y_offset_m = 0.0
         self._enable_trajectory = True
 
-        # --- 軌跡 (Trajectory) 記錄變數 ---
-        self._target_history = {} # tid -> deque
-        self._traj_2d = {}        # tid -> pg.PlotCurveItem
-        self._traj_3d = {}        # tid -> gl.GLLinePlotItem
-        self._box_3d = {}         # tid -> gl.GLLinePlotItem
-        self._missing_frames = {} # tid -> target 消失後已保留的 frame 數
-        self._target_smooth = {}  # tid -> 平滑後的 target 世界座標
-        self._target_velocity = {} # tid -> smoothed frame-to-frame velocity
-        self._max_history = 50    # 軌跡最多保留最近的 50 個點
+        self._target_history = {}
+        self._traj_2d = {}
+        self._traj_3d = {}
+        self._box_3d = {}
+        self._missing_frames = {}
+        self._target_smooth = {}
+        self._target_velocity = {}
+        self._max_history = 50
         self._min_trail_step_m = 0.04
         self._max_trail_segment_m = 0.25
-        self._prediction_frames = 8 # short occlusion hold before fading
-        self._fade_frames = 24    # target 消失後，軌跡淡出的 frame 數
-        self._smooth_alpha = 0.55 # 越大越貼近即時資料，越小越平滑
+        self._prediction_frames = 8
+        self._fade_frames = 24
+        self._smooth_alpha = 0.55
         self._max_target_jump_m = 2.0
 
         layout = QVBoxLayout(self)
@@ -97,9 +86,6 @@ class AreaScanner3DWidget(QWidget):
         self.stacked_widget = QStackedWidget()
         layout.addWidget(self.stacked_widget)
 
-        # ==================================================
-        # A. 建立 2D 繪圖區 (X-Y View - 雷達半圓視圖)
-        # ==================================================
         self.plot_2d = pg.PlotWidget(background=self.style.background)
         self.plot_2d.showGrid(x=True, y=True, alpha=0.3)
         self.plot_2d.setLabel('bottom', 'X [m]')
@@ -108,7 +94,6 @@ class AreaScanner3DWidget(QWidget):
         self.plot_2d.setYRange(0, 14)
         self.plot_2d.setXRange(-8, 8)
 
-        # 1. Zone & 輔助線
         self.zone_warning_fill = QGraphicsPathItem()
         self.zone_warning_fill.setBrush(QBrush(QColor(210, 170, 0, 85)))
         self.zone_warning_fill.setPen(QPen(Qt.NoPen))
@@ -130,7 +115,6 @@ class AreaScanner3DWidget(QWidget):
         self.boresight_line = pg.PlotCurveItem([0, 0], [0, 20], pen=pg.mkPen('y', width=1))
         self.plot_2d.addItem(self.boresight_line)
 
-        # 2. 點雲與目標圖層
         def to_pg_color(rgba: tuple) -> tuple:
             return tuple(int(c * 255) for c in rgba)
 
@@ -144,9 +128,6 @@ class AreaScanner3DWidget(QWidget):
 
         self.stacked_widget.addWidget(self.plot_2d)
 
-        # ==================================================
-        # B. 建立 3D 繪圖區 (3D View)
-        # ==================================================
         self.plot_3d = gl.GLViewWidget()
         self.plot_3d.setBackgroundColor(pg.mkColor(self.style.background))
 
@@ -159,14 +140,12 @@ class AreaScanner3DWidget(QWidget):
         axis.setSize(x=5, y=5, z=5)
         self.plot_3d.addItem(axis)
 
-        # 【修復】預設給予空的 MeshData，防止未傳入頂點時 OpenGL 計算法向量丟出 KeyError/TypeError 崩潰
         empty_md = gl.MeshData(vertexes=np.empty((0, 3)), faces=np.empty((0, 3), dtype=int))
         self.zone_3d_critical = gl.GLMeshItem(meshdata=empty_md, color=(0.75, 0.05, 0.05, 0.28), smooth=False, drawEdges=False, glOptions='translucent')
         self.zone_3d_warning = gl.GLMeshItem(meshdata=empty_md, color=(1.0, 0.85, 0.15, 0.18), smooth=False, drawEdges=False, glOptions='translucent')
         self.plot_3d.addItem(self.zone_3d_warning)
         self.plot_3d.addItem(self.zone_3d_critical)
 
-        # --- 雷達實體與安裝支柱 ---
         self.mounting_pole = gl.GLLinePlotItem(pos=np.array([[0,0,0], [0,0,2]]), color=(0.7, 0.7, 0.7, 1.0), width=3, antialias=True)
         self.plot_3d.addItem(self.mounting_pole)
 
@@ -188,7 +167,6 @@ class AreaScanner3DWidget(QWidget):
         self.plot_3d.opts['center'] = QVector3D(0, 3, 1)
         self.plot_3d.setCameraPosition(distance=15, elevation=30, azimuth=45)
 
-        # --- 點雲與目標圖層 ---
         self.scatter_3d_dynamic = gl.GLScatterPlotItem(pos=np.empty((0, 3)), color=self.style.dynamic_color, size=5)
         self.scatter_3d_static = gl.GLScatterPlotItem(pos=np.empty((0, 3)), color=self.style.static_color, size=8)
         self.scatter_3d_targets = gl.GLScatterPlotItem(pos=np.empty((0, 3)), color=self.style.target_color, size=15)
@@ -199,11 +177,7 @@ class AreaScanner3DWidget(QWidget):
 
         self.stacked_widget.addWidget(self.plot_3d)
 
-    # ------------------------------------------------------
-    # 3. 對外公開：設定類方法
-    # ------------------------------------------------------
     def set_view_mode(self, view_mode: str) -> None:
-        """切換 2D / 3D 畫布"""
         if self.stacked_widget is None:
             return
         self._view_mode = view_mode.strip()
@@ -215,7 +189,6 @@ class AreaScanner3DWidget(QWidget):
     def set_zone_config(self, enable_zones: bool = True, critical_start_m: float = 0.0,
                         critical_end_m: float = 2.0, warn_start_m: float = 2.0,
                         warn_end_m: float = 4.0, projection_time_s: float = 2.0) -> None:
-        """更新 2D 雷達視角的警示區與輔助線"""
         self._enable_zones = enable_zones
         self._critical_start_m = critical_start_m
         self._critical_end_m = critical_end_m
@@ -277,7 +250,6 @@ class AreaScanner3DWidget(QWidget):
         inner = max(0.0, min(start_m, end_m))
         outer = max(start_m, end_m)
         if outer <= 0:
-            # 【修復】傳入空的 MeshData 避免計算 Normals 時丟出 TypeError
             mesh_item.setMeshData(meshdata=gl.MeshData(vertexes=np.empty((0, 3)), faces=np.empty((0, 3), dtype=int)))
             mesh_item.setVisible(False)
             return
@@ -335,7 +307,6 @@ class AreaScanner3DWidget(QWidget):
     def set_mount_config(self, mounting_height_m: float, elevation_tilt_deg: float,
                          yaw_offset_deg: float = 0.0, x_offset_m: float = 0.0,
                          y_offset_m: float = 0.0) -> None:
-        """接收安裝高度，供 3D 視圖做 Z 軸補償，並連動實體方塊與支柱"""
         self._mounting_height_m = mounting_height_m
         self._elevation_tilt_deg = elevation_tilt_deg
         self._yaw_offset_deg = yaw_offset_deg
@@ -360,7 +331,6 @@ class AreaScanner3DWidget(QWidget):
         self._max_target_jump_m = max(0.2, max_target_jump_m)
 
     def _apply_mount_transform(self, x: float, y: float, z: float) -> tuple:
-        """套用安裝俯仰角與高度補償，回傳世界座標。"""
         tilt = math.radians(self._elevation_tilt_deg)
         cos_tilt = math.cos(tilt)
         sin_tilt = math.sin(tilt)
@@ -396,7 +366,7 @@ class AreaScanner3DWidget(QWidget):
 
     def _trajectory_pen(self, alpha: float = 1.0):
         r, g, b, _ = self.style.target_color
-        color = (int(r * 255), int(g * 255), int(b * 255), int(max(0.0, min(1.0, alpha)) * 255))
+        color = QColor(int(r * 255), int(g * 255), int(b * 255), int(max(0.0, min(1.0, alpha)) * 255))
         return pg.mkPen(color=color, width=2, style=Qt.DashLine)
 
     def _trajectory_color_3d(self, alpha: float = 1.0) -> tuple:
@@ -513,9 +483,6 @@ class AreaScanner3DWidget(QWidget):
         if tid in self._box_3d:
             self._box_3d[tid].setData(pos=self._target_box_vertices(predicted))
 
-    # ------------------------------------------------------
-    # 4. 對外公開：用 frame 更新畫面
-    # ------------------------------------------------------
     def update_from_frame(self, frame, buffer_frame_count: int = 1) -> None:
         if not HAS_PYQTGRAPH or self.stacked_widget is None:
             return
@@ -534,9 +501,6 @@ class AreaScanner3DWidget(QWidget):
 
         is_2d = (self._view_mode == "X-Y View")
 
-        # ==========================================
-        # 軌跡處理 (Trajectory Tracking)
-        # ==========================================
         if self._enable_trajectory:
             current_tids = set(t["tid"] for t in targets)
             for tid in list(self._target_history.keys()):
@@ -571,9 +535,6 @@ class AreaScanner3DWidget(QWidget):
             self._append_trajectory_point(tid, (t["x"], t["y"], t["z"]))
             self._refresh_trajectory_items(tid)
 
-        # ==========================================
-        # 散佈點圖 (Scatter) 更新
-        # ==========================================
         if is_2d:
             self.scatter_2d_dynamic.setData(pos=[(p[0], p[1]) for p in dyn_pts] if dyn_pts else [])
             self.scatter_2d_static.setData(pos=[(p[0], p[1]) for p in sta_pts] if sta_pts else [])
@@ -584,7 +545,6 @@ class AreaScanner3DWidget(QWidget):
             self.scatter_3d_targets.setData(pos=np.array([[t["x"], t["y"], t["z"]] for t in targets]) if targets else np.empty((0, 3)))
 
     def clear(self) -> None:
-        """清空畫面，包含所有點雲與歷史軌跡"""
         if not HAS_PYQTGRAPH or self.stacked_widget is None:
             return
 
@@ -611,14 +571,7 @@ class AreaScanner3DWidget(QWidget):
         self._target_smooth.clear()
         self._target_velocity.clear()
 
-    # ------------------------------------------------------
-    # 5. 內部工具：frame 標準化
-    # ------------------------------------------------------
     def _normalize_frame(self, frame) -> dict:
-        """
-        【修復】同時相容帶有屬性的物件（ParsedFrame）與字典（dict）格式，
-        確保傳入 key 為 "x", "y", "z" 的 dict 點雲資料時，解包為可算數的浮點數二元組。
-        """
         def parse_pt(p):
             if hasattr(p, 'x'):
                 return (float(p.x), float(p.y), float(p.z))
@@ -673,6 +626,5 @@ class AreaScanner3DWidget(QWidget):
             "targets": targets,
         }
 
-# 相容別名
 AreaScannerVisualizerWidget = AreaScanner3DWidget
 __all__ = ['AreaScanner3DWidget', 'AreaScannerVisualizerWidget', 'ViewerStyle']
