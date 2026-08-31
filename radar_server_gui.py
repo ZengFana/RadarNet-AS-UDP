@@ -9,8 +9,8 @@ import json
 import socket
 import time
 from pathlib import Path
-from PySide6.QtCore import QThread, Signal, Slot
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+from PyQt5.QtCore import QThread, pyqtSignal as Signal, pyqtSlot as Slot
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGroupBox, QFormLayout, QComboBox,
                              QSpinBox, QLineEdit, QPushButton, QPlainTextEdit, QLabel, QFileDialog)
 from serial_manager import SerialManager, SerialConfig

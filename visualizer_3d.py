@@ -14,9 +14,9 @@ from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 import math
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPainterPath, QColor, QBrush, QPen, QVector3D
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget, QStackedWidget, QGraphicsPathItem
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont, QPainterPath, QColor, QBrush, QPen, QVector3D
+from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget, QStackedWidget, QGraphicsPathItem
 
 try:
     import numpy as np
